@@ -19,6 +19,10 @@ app.use(cors({
 }))
 app.use(express.json({ limit: '32kb' }))
 
+const openRouterApiKey = process.env.OPENROUTER_API_KEY
+const openRouterModel = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini'
+const openRouterBaseUrl = 'https://openrouter.ai/api/v1/chat/completions'
+
 const allowedResources = new Set(['Lesson plan', 'Notes', 'Quiz', 'Worksheet', 'TLM'])
 const allowedPaces = new Set(['Slow-paced', 'Normal', 'Fast'])
 const allowedLanguages = new Set(['English', 'Hindi', 'English + Hindi'])
