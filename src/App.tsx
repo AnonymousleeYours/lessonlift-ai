@@ -20,6 +20,29 @@ const stages = [
   { name: 'Evaluate', time: '5 min', hint: 'Check understanding with a short exit ticket or formative assessment.' },
 ]
 
+function escapeHtml(value: string) {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
+function markdownToPrintHtml(markdown: string) {
+  const lines = markdown.split(/\\r?\\n/)
+  const output: string[] = []
+  let inList = false
+  const inline = (line: string) => escapeHtml(line).replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>').replace(/\\*(.+?)\\*/g, '<em>$1</em>')
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    const listMatch = line.match(/^[-*]\\s+(.+)/) || line.match(/^\\d+\\.\\s+(.+)/)
+    if (listMatch) { if (!inList) { output.push('<ul>'); inList = true }; output.push('<li>' + inline(listMatch[1]) + '</li>'); continue }
+    if (inList) { output.push('</ul>'); inList = false }
+    if (!line) continue
+    const heading = line.match(/^(#{1,6})\\s+(.+)/)
+    if (heading) { const level = Math.min(heading[1].length, 3); output.push('<h' + level + '>' + inline(heading[2]) + '</h' + level + '>') }
+    else if (/^---+$/.test(line)) output.push('<hr>')
+    else output.push('<p>' + inline(line) + '</p>')
+  }
+  if (inList) output.push('</ul>')
+  return output.join('\\n')
+}
 function App() {
   const [active, setActive] = useState('Overview')
   const [mobileNav, setMobileNav] = useState(false)
@@ -76,6 +99,20 @@ function App() {
     setSaved(true)
   }
 
+  function exportPdf() {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) { setGenerationError('The PDF print window was blocked. Allow pop-ups for LessonLift and try again.'); return }
+    const title = escapeHtml(topic.trim() || 'LessonLift lesson plan')
+    const body = markdownToPrintHtml(aiDraft)
+    printWindow.document.open()
+    printWindow.document.write('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' + title + ' - LessonLift</title>' +
+      '<style>@page{size:A4;margin:18mm 16mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#20242b;font-size:10.5pt;line-height:1.5}h1{font-size:19pt;margin:0 0 6pt}h2{font-size:15pt;margin-top:18pt;border-bottom:1px solid #d9dde4;padding-bottom:4pt;break-after:avoid}h3{font-size:12pt;margin-top:14pt;break-after:avoid}p{margin:5pt 0 8pt}li{margin:3pt 0}ul{padding-left:20pt}table{border-collapse:collapse;width:100%;font-size:9pt}th,td{border:1px solid #aeb5c0;padding:5pt;text-align:left;vertical-align:top}hr{border:0;border-top:1px solid #ddd;margin:12pt 0}.meta{color:#555;font-size:9pt;margin-bottom:16pt}.footer{margin-top:22pt;border-top:1px solid #ddd;padding-top:8pt;color:#555;font-size:8.5pt}</style></head><body>' +
+      '<h1>' + title + '</h1><div class="meta">' + escapeHtml(board) + ' · ' + escapeHtml(grade) + ' · ' + escapeHtml(subject) + '<br>' + escapeHtml(chapter || 'Chapter not specified') + ' · ' + escapeHtml(duration) + ' · ' + escapeHtml(language) + '</div>' + body +
+      '<div class="footer">Generated with LessonLift AI. Teacher review required: verify alignment with the official textbook and syllabus before classroom use.</div><script>window.addEventListener("load",function(){window.focus();window.print()})</script></body></html>')
+    printWindow.document.close()
+    setGenerationError('')
+  }
+
   function downloadText() {
     const lines = [
       `${resource}: ${topic}`, `Board: ${board} | ${grade} | ${subject}`,
@@ -130,6 +167,7 @@ function App() {
                     <div className="preview-actions">
                       <button className="primary-button" onClick={saveResource}><Plus size={16}/>{saved ? 'Saved to library' : 'Save to library'}</button>
                       <button className="secondary-button" onClick={downloadText}><Download size={16}/> Export .txt</button>
+                      {resource === 'Lesson plan' && <button className="secondary-button" onClick={exportPdf}><Download size={16}/> Export PDF</button>}
                     </div>
                   </div>
                 ) : (
