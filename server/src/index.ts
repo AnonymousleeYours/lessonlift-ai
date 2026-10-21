@@ -1,7 +1,6 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
-import OpenAI from 'openai'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -20,16 +19,12 @@ app.use(cors({
 }))
 app.use(express.json({ limit: '32kb' }))
 
-const openai = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  : null
-
 const allowedResources = new Set(['Lesson plan', 'Notes', 'Quiz', 'Worksheet', 'TLM'])
 const allowedPaces = new Set(['Slow-paced', 'Normal', 'Fast'])
 const allowedLanguages = new Set(['English', 'Hindi', 'English + Hindi'])
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, aiConfigured: Boolean(openai) })
+  res.json({ ok: true, aiConfigured: Boolean(openRouterApiKey) })
 })
 
 app.post('/api/generate', async (req, res) => {
@@ -42,9 +37,9 @@ app.post('/api/generate', async (req, res) => {
   if (!allowedPaces.has(pace)) return res.status(400).json({ error: 'Unsupported learning pace.' })
   if (!allowedLanguages.has(language)) return res.status(400).json({ error: 'Unsupported output language.' })
 
-  if (!openai) {
+  if (!openRouterApiKey) {
     return res.status(503).json({
-      error: 'AI is not configured yet. Add OPENAI_API_KEY to the server environment to enable generation.',
+      error: 'AI is not configured yet. Add OPENROUTER_API_KEY to the server environment to enable generation.',
     })
   }
 
@@ -76,17 +71,40 @@ app.post('/api/generate', async (req, res) => {
   ].join('\n')
 
   try {
-    const completion = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-      temperature: 0.4,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
+    const completionResponse = await fetch(openRouterBaseUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${openRouterApiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://lessonlift-ai-web.onrender.com',
+        'X-Title': 'LessonLift AI',
+      },
+      body: JSON.stringify({
+        model: openRouterModel,
+        temperature: 0.4,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      }),
     })
-    const content = completion.choices[0]?.message?.content
+    if (!completionResponse.ok) {
+      const providerError = await completionResponse.json().catch(() => null) as { error?: { message?: string } } | null
+      console.error('OpenRouter request failed:', completionResponse.status, providerError?.error?.message || 'Provider returned an error')
+      return res.status(502).json({ error: 'AI generation failed. Check the OpenRouter key, account credits, and model availability in Render.' })
+    }
+    const completion = await completionResponse.json() as {
+      choices?: Array<{ message?: { content?: string | Array<{ type?: string; text?: string }> } }>
+      model?: string
+    }
+    const rawContent = completion.choices?.[0]?.message?.content
+    const content = typeof rawContent === 'string'
+      ? rawContent
+      : Array.isArray(rawContent)
+        ? rawContent.filter((part) => typeof part.text === 'string').map((part) => part.text).join('\\n')
+        : ''
     if (!content) return res.status(502).json({ error: 'The AI returned an empty response. Please try again.' })
-    return res.json({ content, model: completion.model })
+    return res.json({ content, model: completion.model || openRouterModel })
   } catch (error) {
     console.error('AI generation failed:', error instanceof Error ? error.message : 'Unknown error')
     return res.status(502).json({ error: 'AI generation failed. Check server configuration and try again.' })
