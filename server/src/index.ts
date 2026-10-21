@@ -5,9 +5,19 @@ import OpenAI from 'openai'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
-const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:5173'
+const configuredOrigins = (process.env.CLIENT_ORIGIN || '').split(',').map((origin) => origin.trim()).filter(Boolean)
+const allowedOrigins = new Set([
+  'https://lessonlift-ai-web.onrender.com',
+  'http://localhost:5173',
+  ...configuredOrigins,
+])
 
-app.use(cors({ origin: clientOrigin }))
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin)) return callback(null, true)
+    return callback(new Error('Origin is not allowed by LessonLift API CORS policy.'))
+  },
+}))
 app.use(express.json({ limit: '32kb' }))
 
 const openai = process.env.OPENAI_API_KEY
